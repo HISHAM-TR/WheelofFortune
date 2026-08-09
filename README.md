@@ -17,7 +17,7 @@ Interactive wheel of fortune themed with the **pgstor.com** brand colors. Enter 
 
 ## الاستخدام | Usage
 
-1. افتح [الموقع المباشر](https://wheel-of-fortune.vercel.app) أو افتح `index.html` في المتصفح
+1. افتح [الموقع المباشر](https://wheel-nine-kohl.vercel.app/) أو افتح `index.html` في المتصفح
 2. أدخل الأسماء ثم اضغط «إضافة الكل»
 3. اضغط «ابدأ السحب» واستمتع!
 
