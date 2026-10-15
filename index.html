@@ -501,6 +501,7 @@ let rotation = 0;       // current rotation in degrees (CSS rotation)
 let spinning = false;
 let eliminationMode = true;
 let soundOn = true;
+let pendingLoserName = null; // الخاسر الذي يبقى على العجلة حتى تُضغط السحبة التالية فيُحذف
 
 let audioCtx = null;
 function getAudio() {
@@ -673,6 +674,16 @@ buildBg();
 
 function modDeg(x) { return ((x % 360) + 360) % 360; }
 
+function getPointerIndex() {
+  const n = names.length;
+  if (n === 0) return 0;
+  const arcDeg = 360 / n;
+  // زاوية الكانفس التي تقع تحت المؤشر (المؤشر ثابت في الأعلى = 270 درجة)
+  const canvasAngle = modDeg(270 - modDeg(rotation));
+  const idx = Math.floor(canvasAngle / arcDeg) % n;
+  return (idx + n) % n;
+}
+
 function shade(hex, amt) {
   const num = parseInt(hex.slice(1), 16);
   let r = (num >> 16) & 255, g = (num >> 8) & 255, b = num & 255;
@@ -836,17 +847,25 @@ function renderList() {
   }
   names.forEach((name, idx) => {
     const li = document.createElement('li');
+    if (name === pendingLoserName) {
+      li.style.border = '1px solid rgba(255,80,80,.6)';
+      li.style.background = 'rgba(255,60,60,.12)';
+    }
     const badge = document.createElement('span');
     badge.className = 'badge';
     badge.textContent = idx + 1;
     const nm = document.createElement('span');
     nm.className = 'nm';
-    nm.textContent = name;
+    nm.textContent = name === pendingLoserName ? name + ' ❌' : name;
     const del = document.createElement('button');
     del.className = 'del';
     del.textContent = '✕';
     del.title = 'حذف';
-    del.onclick = () => { names.splice(idx, 1); saveNames(); render(); };
+    del.onclick = () => {
+      if (names[idx] === pendingLoserName) pendingLoserName = null;
+      names.splice(idx, 1); saveNames(); render();
+      if (pendingLoserName === null) document.getElementById('btnSpin').textContent = '🎡 ابدأ السحب';
+    };
     li.appendChild(badge);
     li.appendChild(nm);
     li.appendChild(del);
@@ -860,6 +879,20 @@ function spin() {
     document.getElementById('winner').textContent = 'أضف أسماء أولًا!';
     document.getElementById('winner').className = 'winner show';
     return;
+  }
+  // حذف الخاسر السابق عند بدء سحبة جديدة (المؤشر كان ثابتًا عليه حتى الآن)
+  if (eliminationMode && pendingLoserName !== null) {
+    const pIdx = names.indexOf(pendingLoserName);
+    if (pIdx !== -1) names.splice(pIdx, 1);
+    pendingLoserName = null;
+    saveNames();
+    render();
+    document.getElementById('btnSpin').textContent = '🎡 ابدأ السحب';
+    if (names.length === 0) {
+      document.getElementById('winner').textContent = 'أضف أسماء أولًا!';
+      document.getElementById('winner').className = 'winner show';
+      return;
+    }
   }
   if (eliminationMode && names.length === 1) {
     document.getElementById('winner').textContent = '🏆 الفائز النهائي: ' + names[0];
@@ -877,7 +910,9 @@ spinning = true;
   const arcDeg = 360 / n;
   const targetIdx = Math.floor(Math.random() * n);
   const fullTurns = 5 + Math.floor(Math.random() * 4);
-  const jitter = Math.random() * arcDeg * 0.9;
+  // إزاحة صغيرة متمركزة حول منتصف القطعة حتى يبقى المؤشر داخلها دائمًا
+  // (القيمة القديمة كانت من 0 إلى 0.9 من القطعة وكانت تدفع المؤشر للقطعة المجاورة)
+  const jitter = (Math.random() - 0.5) * arcDeg * 0.7;
 
   const targetMod = modDeg(270 - (targetIdx + 0.5) * arcDeg + jitter);
   const targetRotation = rotation + fullTurns * 360 + modDeg(targetMod - modDeg(rotation));
@@ -896,7 +931,10 @@ const startRotation = rotation;
     if (t < 1) {
       requestAnimationFrame(step);
     } else {
-      finish(targetIdx);
+      rotation = targetRotation;
+      canvas.style.transform = 'rotate(' + rotation + 'deg)';
+      // نحسب الفائز من الموقع الفعلي للمؤشر لضمان تطابق 100% مع ما يُرى على العجلة
+      finish(getPointerIndex());
     }
   }
   requestAnimationFrame(step);
@@ -907,22 +945,16 @@ function finish(targetIdx) {
   const name = names[targetIdx];
 
 if (eliminationMode && names.length > 1) {
-    winnerEl.textContent = '❌ الخاسر: ' + name + ' — حُذف من السحب';
+    winnerEl.textContent = '❌ الخاسر: ' + name;
     winnerEl.className = 'winner show';
     playLose();
-    names.splice(targetIdx, 1);
-    saveNames();
-    render();
+    // نُبقي الخاسر على العجلة والمؤشر عليه، ولا نحذفه إلا عند بدء السحبة التالية
+    pendingLoserName = name;
+    renderList();
+    document.getElementById('btnSpin').textContent = '⏭ واصل السحب';
     spinning = false;
     document.getElementById('btnSpin').disabled = false;
     document.getElementById('wheelWrap').classList.remove('glowing');
-    if (names.length === 1) {
-      setTimeout(() => {
-        winnerEl.textContent = '🏆 الفائز النهائي: ' + names[0];
-        winnerEl.className = 'winner show';
-        celebrate(names[0], 'الفائز النهائي 🎉');
-      }, 1500);
-    }
     return;
   }
 
@@ -941,6 +973,9 @@ document.getElementById('nameInput').addEventListener('keydown', (e) => {
 document.getElementById('btnSpin').onclick = spin;
 document.getElementById('elimMode').addEventListener('change', (e) => {
   eliminationMode = e.target.checked;
+  pendingLoserName = null;
+  document.getElementById('btnSpin').textContent = '🎡 ابدأ السحب';
+  renderList();
 });
 document.getElementById('soundToggle').addEventListener('change', (e) => {
   soundOn = e.target.checked;
@@ -948,6 +983,8 @@ document.getElementById('soundToggle').addEventListener('change', (e) => {
 document.getElementById('btnClear').onclick = () => {
   names.length = 0;
   rotation = 0;
+  pendingLoserName = null;
+  document.getElementById('btnSpin').textContent = '🎡 ابدأ السحب';
   saveNames();
   render();
 };
